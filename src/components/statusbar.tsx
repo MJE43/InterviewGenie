@@ -1,11 +1,14 @@
 // src/components/StatusBar.tsx
 import React from 'react';
 
-const StatusBar: React.FC = () => {
+interface StatusBarProps {
+  isRecording: boolean;
+}
+
+const StatusBar: React.FC<StatusBarProps> = ({ isRecording }) => {
   return (
     <div className="p-4 bg-gray-100 border-b">
-      {/* Status bar content will go here */}
-      Status Bar
+      {isRecording ? "Recording..." : "Ready"}
     </div>
   );
 };

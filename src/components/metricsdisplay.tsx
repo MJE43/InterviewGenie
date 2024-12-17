@@ -1,12 +1,17 @@
 // src/components/MetricsDisplay.tsx
 import React from 'react';
 
-const MetricsDisplay: React.FC = () => {
+interface MetricsDisplayProps {
+  metrics: Record<string, number | string>;
+}
+
+const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
   return (
     <div className="p-4 bg-gray-100 border-t">
       {/* Performance metrics will go here */}
-      Metrics Display
+      <pre>{JSON.stringify(metrics, null, 2)}</pre>
     </div>
   );
 };
+
 export default MetricsDisplay;

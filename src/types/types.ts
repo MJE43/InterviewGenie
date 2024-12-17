@@ -1,4 +1,3 @@
-// src/types/types.ts
 
 export interface User {
   id: string;
@@ -46,4 +45,18 @@ export interface ExtendedMediaStreamConstraints extends MediaStreamConstraints {
   systemAudio?: "include" | "exclude";
   selfBrowserSurface?: "include" | "exclude";
   displaySurface?: "window" | "browser" | "monitor";
+}
+
+export interface GeminiWebSocketMessage {
+  BidiGenerateContentServerContent?: {
+    model_turn: {
+      parts: Array<{ text: string }>;
+    };
+    interrupted?: boolean;
+  };
+}
+
+export interface WebSocketErrorEvent {
+  error: Error;
+  message: string;
 }

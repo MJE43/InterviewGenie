@@ -1,11 +1,16 @@
 // src/components/CoachingContent.tsx
 import React from 'react';
-const CoachingContent: React.FC = () => {
+
+interface CoachingContentProps {
+  suggestions: string;
+}
+
+const CoachingContent: React.FC<CoachingContentProps> = ({ suggestions }) => {
   return (
     <div className="p-4">
-      {/* Coaching content will be displayed here */}
-      Coaching Content
+          {suggestions}
     </div>
   );
 };
+
 export default CoachingContent;
