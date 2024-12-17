@@ -1,5 +1,14 @@
-// src/types/media-stream-track-processor.d.ts
+// src/types/browser.d.ts
 
+// Augment MediaTrackConstraints with Screen Capture API extensions
+interface MediaTrackConstraints {
+  systemAudio?: 'include' | 'exclude';
+  selfBrowserSurface?: 'include' | 'exclude';
+  displaySurface?: 'window' | 'browser' | 'monitor';
+  suppressLocalAudioPlayback?: boolean;
+}
+
+// Keep the MediaStreamTrackProcessor definitions
 interface MediaStreamTrackProcessorInit {
   track: MediaStreamTrack;
   maxBufferSize?: number;

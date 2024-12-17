@@ -1,66 +1,58 @@
 // src/lib/events.ts
 
-import { AudioStatus, AudioError, AudioData, AudioMetrics } from '@/types/audio';
+import { BaseEventMap, EventCallback, EventHandlerMap } from '@/types/events';
 
-// Define all possible event types and their corresponding payload types
-export interface EventMap {
-    statusChange: AudioStatus;
-    error: AudioError;
-    audioData: AudioData;
-    metricsUpdate: AudioMetrics;
-}
-
-// Type-safe callback type for each event
-export type EventCallback<K extends keyof EventMap> = (data: EventMap[K]) => void;
-
-export class EventDispatcher {
-    private listeners: Map<keyof EventMap, Set<EventCallback<keyof EventMap>>>;
+export class EventDispatcher<T extends BaseEventMap> {
+    private readonly listeners: EventHandlerMap<T>;
 
     constructor() {
         this.listeners = new Map();
     }
 
-    on<K extends keyof EventMap>(event: K, callback: EventCallback<K>): void {
+    public on<K extends keyof T>(event: K, callback: EventCallback<T[K]>): void {
         if (!this.listeners.has(event)) {
             this.listeners.set(event, new Set());
         }
-        // Type assertion needed here as TypeScript cannot infer the relationship
-        // between K and the Set type across the Map get
-        this.listeners.get(event)!.add(callback as EventCallback<keyof EventMap>);
+        // TypeScript requires this assertion due to Map.get() return type
+        this.listeners.get(event)!.add(callback as EventCallback<T[keyof T]>);
     }
 
-    off<K extends keyof EventMap>(event: K, callback: EventCallback<K>): void {
+    public off<K extends keyof T>(event: K, callback: EventCallback<T[K]>): void {
         const callbacks = this.listeners.get(event);
         if (callbacks) {
-            callbacks.delete(callback as EventCallback<keyof EventMap>);
+            callbacks.delete(callback as EventCallback<T[keyof T]>);
             if (callbacks.size === 0) {
                 this.listeners.delete(event);
             }
         }
     }
 
-    emit<K extends keyof EventMap>(event: K, data: EventMap[K]): void {
+    protected emit<K extends keyof T>(event: K, data: T[K]): void {
         const callbacks = this.listeners.get(event);
         if (callbacks) {
             callbacks.forEach(callback => {
                 try {
-                    (callback as EventCallback<K>)(data);
+                    (callback as EventCallback<T[K]>)(data);
                 } catch (error) {
-                    console.error(`Error in event handler for ${String(event)}:`, error);
+                    console.error(
+                        `Error in event handler for ${String(event)}:`,
+                        error instanceof Error ? error.message : 'Unknown error'
+                    );
                 }
             });
         }
     }
 
-    once<K extends keyof EventMap>(event: K, callback: EventCallback<K>): void {
-        const onceWrapper: EventCallback<K> = ((data: EventMap[K]) => {
+    public once<K extends keyof T>(event: K, callback: EventCallback<T[K]>): void {
+        const onceWrapper = ((data: T[K]) => {
             this.off(event, onceWrapper);
             callback(data);
-        });
+        }) as EventCallback<T[K]>;
+        
         this.on(event, onceWrapper);
     }
 
-    removeAllListeners(event?: keyof EventMap): void {
+    public removeAllListeners(event?: keyof T): void {
         if (event) {
             this.listeners.delete(event);
         } else {
@@ -68,7 +60,7 @@ export class EventDispatcher {
         }
     }
 
-    listenerCount(event: keyof EventMap): number {
+    public listenerCount(event: keyof T): number {
         return this.listeners.get(event)?.size ?? 0;
     }
-};
+}
