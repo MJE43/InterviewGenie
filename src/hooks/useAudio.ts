@@ -1,7 +1,7 @@
 // src/hooks/useAudio.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AudioManager, AudioError } from '@/services/AudioManager';
-import { AudioStatus, AudioMetrics, AudioData } from '@/types/audio';
+import { AudioStatus, AudioMetrics, AudioData, AudioConfig } from '@/types/audio';
 
 interface UseAudioOptions {
     onData?: (data: AudioData) => void;
@@ -54,30 +54,26 @@ export const useAudio = (options: UseAudioOptions = {}) => {
         };
     }, [handleAudioData, handleError, handleStatusChange]);
 
-    const startAudio = useCallback(async () => {
-        try {
-            await audioManager.current.initialize({
-                echoCancellation: true,
-                noiseSuppression: true,
-                sampleRate: 44100
-            });
-        } catch (error) {
-            if (error instanceof AudioError) {
-                handleError(error);
-            } else {
-                handleError(new AudioError('UNKNOWN', 'Failed to start audio capture'));
-            }
-        }
-    }, [handleError]);
+       const startAudio = useCallback(async (sourceType: string, config?: Partial<AudioConfig>) => {
+           try {
+                 await audioManager.current.initialize(config)
+                await audioManager.current.startAudio(sourceType);
+           } catch (error) {
+              if (error instanceof AudioError) {
+                  handleError(error);
+                } else {
+                  handleError(new AudioError('UNKNOWN', 'Failed to start audio capture'));
+                }
+           }
+        }, [handleError]);
 
     const stopAudio = useCallback(async () => {
         try {
-            await audioManager.current.cleanup();
+            await audioManager.current.stopAudio();
         } catch (error) {
             console.error('Error stopping audio:', error);
         }
     }, []);
-
     // Cleanup on unmount
     useEffect(() => {
         return () => {

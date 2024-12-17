@@ -124,6 +124,25 @@ export class AudioManager extends EventDispatcher<AudioEventMap> {
         }
     }
 
+      public async setupMicrophoneStream(): Promise<void> {
+            try {
+                const constraints = {
+                    echoCancellation: this.currentConfig.echoCancellation,
+                    noiseSuppression: this.currentConfig.noiseSuppression,
+                };
+                this.stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+                this.setupStreamEventHandlers();
+            } catch (err) {
+                 const message = getErrorMessage(err);
+                throw new AudioError(
+                  'STREAM_CREATION_FAILED',
+                    `Failed to create microphone stream: ${message}`,
+                  true
+                );
+            }
+     }
+
+
     private setupStreamEventHandlers(): void {
         if (!this.stream) return;
 
@@ -300,6 +319,25 @@ export class AudioManager extends EventDispatcher<AudioEventMap> {
         this.retryCount = 0;
     }
 
+     public async startAudio(sourceType: string): Promise<void> {
+        try {
+            if (sourceType === "single") {
+               await this.initialize(this.currentConfig);
+            } else {
+               await this.initialize(this.currentConfig);
+               await this.setupMicrophoneStream();
+               this.setupAudioPipeline();
+            }
+
+           this.updateStatus('active');
+        } catch (error) {
+            await this.handleError(error);
+        }
+    }
+
+    public async stopAudio(): Promise<void> {
+           await this.cleanup();
+    }
     public getStatus(): AudioStatus {
         return this.status;
     }

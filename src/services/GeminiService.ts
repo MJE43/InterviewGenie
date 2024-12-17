@@ -1,4 +1,6 @@
-import { WebSocketErrorEvent } from '@/types/types';
+// src/services/GeminiService.ts
+import { WebSocketErrorEvent } from '@/types/gemini';
+import { GeminiResponse } from '@/types/gemini';
 
 /**
  * Configuration options for GeminiService
@@ -8,28 +10,7 @@ interface GeminiServiceOptions {
     apiKey: string;
 }
 
-/**
- * Structure for Gemini API responses
- */
-interface GeminiResponse {
-    text: string;
-    isInterrupted: boolean;
-}
 
-/**
- * Type definition for parts in Gemini messages
- */
-interface GeminiPart {
-    text?: string;
-    audio?: {
-        audio_source: {
-            audio_data: {
-                mime_type: string;
-                data: number[];
-            };
-        };
-    };
-}
 
 /**
  * Structure for WebSocket messages from Gemini API
@@ -41,6 +22,10 @@ interface GeminiWebSocketMessage {
         };
         interrupted?: boolean;
     };
+    BidiGenerateContentResponse?: {
+        message: string;
+        code: number;
+    };
 }
 
 /**
@@ -50,10 +35,7 @@ class GeminiService {
     private ws: WebSocket | null = null;
     private model: string;
     private apiKey: string;
-    private audioStream: MediaStream | null = null;
-    private audioRecorder: MediaRecorder | null = null;
-    private audioChunks: Blob[] = [];
-    
+
 
     /**
      * Creates a new instance of GeminiService
@@ -112,26 +94,21 @@ class GeminiService {
         if (!this.ws) {
             throw new Error("Gemini service not connected");
         }
-
-        const message = {
-            "BidiRequest": {
-                "input": {
-                    "contents": [{
-                        "parts": [{
-                            "text": instruction
-                        }]
-                    }]
-                },
-                "generation_config": {
-                    "temperature": 0.4,
-                    "top_p": 1,
-                    "top_k": 32,
-                    "max_output_tokens": 1024
-                }
-            }
+          const config = {
+            model: this.model,
+            generation_config: {
+               response_modalities: ['TEXT'],
+            },
+            system_instruction: instruction,
         };
 
-        this.ws.send(JSON.stringify(message));
+
+      const message = JSON.stringify({
+           "BidiGenerateContentSetup": config
+       });
+
+
+        this.ws.send(message);
     }
 
     /**
@@ -139,28 +116,31 @@ class GeminiService {
      * @param event WebSocket message event
      * @returns Processed response or null if invalid
      */
-    processGeminiResponse(event: MessageEvent): GeminiResponse | null {
+     processGeminiResponse(event: MessageEvent): GeminiResponse | null {
         if (event.data instanceof Blob) {
-            console.log("Received blob data, not processing");
+            console.log("received blob data, not processing");
             return null;
         }
-
-        try {
-            const response = JSON.parse(event.data) as GeminiWebSocketMessage;
+         try {
+           const response = JSON.parse(event.data) as GeminiWebSocketMessage;
             if (response.BidiGenerateContentServerContent?.model_turn) {
                 const text = response.BidiGenerateContentServerContent.model_turn.parts
-                    .map((part: { text: string }) => part.text)
+                    .filter((part): part is { text: string } => typeof part.text === 'string')
+                    .map((part) => part.text)
                     .join('');
-                
                 const isInterrupted = response.BidiGenerateContentServerContent.interrupted === true;
-                return { text, isInterrupted };
+                return { text: text, isInterrupted: isInterrupted };
             }
 
-            return null;
-        } catch (error) {
-            console.error("Error parsing message:", error);
-            throw new Error(`Error parsing message: ${error}`);
-        }
+            if (response.BidiGenerateContentResponse?.code) {
+                console.error("Gemini API error", response.BidiGenerateContentResponse);
+                throw new Error(`Gemini API error: ${response.BidiGenerateContentResponse.message}`)
+            }
+              return null;
+         } catch (error) {
+            console.error("Error parsing message", error);
+            throw new Error('Error parsing message' + error)
+         }
     }
 
     /**
@@ -174,97 +154,39 @@ class GeminiService {
     }
 
     /**
-     * Initiates audio recording
-     * @param stream MediaStream for audio recording
-     * @param audioSourceType Type of audio source ('single' or 'streaming')
-     * @throws Error if WebSocket is not connected
-     */
-    async startRecording(stream: MediaStream, audioSourceType: string): Promise<void> {
+    * Sends audio data to Gemini API
+    * @param audioData Audio data as Uint8Array
+    * @param role Speaker role (user or interviewer)
+    * @throws Error if WebSocket is not connected
+    */
+    async sendAudio(audioData: Float32Array, role: string = "user"): Promise<void> {
         if (!this.ws) {
             throw new Error("Gemini service not connected");
         }
 
-        this.audioStream = stream;
-        this.audioRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        this.audioChunks = [];
+        const uint8Array = new Uint8Array(audioData.buffer);
 
-        this.audioRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                this.audioChunks.push(event.data);
-            }
-        };
 
-        this.audioRecorder.onstop = async () => {
-            const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-            this.audioChunks = [];
-            await this.sendAudio(audioBlob, audioSourceType === "streaming");
-        };
-
-        this.audioRecorder.start();
-    }
-
-    /**
-     * Stops audio recording and cleans up resources
-     */
-    async stopRecording(): Promise<void> {
-        if (this.audioRecorder) {
-            this.audioRecorder.stop();
-            this.audioRecorder = null;
-        }
-
-        if (this.audioStream) {
-            this.audioStream.getTracks().forEach(track => track.stop());
-            this.audioStream = null;
-        }
-    }
-
-    /**
-     * Sends recorded audio to Gemini API
-     * @param audioBlob Recorded audio data
-     * @param isStreaming Whether this is part of a streaming session
-     * @throws Error if WebSocket is not connected
-     */
-    async sendAudio(audioBlob: Blob, isStreaming = false): Promise<void> {
-        if (!this.ws) {
-            throw new Error("Gemini service not connected");
-        }
-
-        const arrayBuffer = await audioBlob.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        const parts: GeminiPart[] = [{
-            audio: {
-                audio_source: {
-                    audio_data: {
-                        mime_type: "audio/webm",
-                        data: Array.from(uint8Array)
+         const message = JSON.stringify({
+           "BidiGenerateContentRealtimeInput": {
+               "media_chunks": [Array.from(uint8Array)],
+             "client_content": {
+                "turns": [
+                    {
+                       "parts": [
+                         {
+                           "role": role,
+                             "mime_type": "audio/raw"
+                            }
+                       ]
                     }
-                }
-            }
-        }];
+                ]
+             }
+           }
+       });
 
-        if (isStreaming) {
-            parts.push({ text: "continue" });
-        }
-
-        const message = {
-            "BidiRequest": {
-                "input": {
-                    "contents": [{
-                        parts
-                    }]
-                },
-                "generation_config": {
-                    "temperature": 0.4,
-                    "top_p": 1,
-                    "top_k": 32,
-                    "max_output_tokens": 1024
-                }
-            }
-        };
-
-        this.ws.send(JSON.stringify(message));
-    }
+       this.ws.send(message);
+     }
 }
 
 export default GeminiService;

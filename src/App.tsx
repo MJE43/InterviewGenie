@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import StatusBar from './components/statusbar';
 import CoachingContent from './components/coachingcontent';
 import MetricsDisplay from './components/metricsdisplay';
@@ -8,14 +8,12 @@ import { useUser } from './contexts/UserContext';
 import { Button } from './components/ui/button';
 import useGemini from './hooks/useGemini';
 
+// InterviewCoach/src/App.tsx
 const App: React.FC = () => {
-    const [isRecording, setIsRecording] = useState(false);
-    const { geminiResponse } = useUser();
-    const { appState, connect, startRecording, stopRecording, setAudioSourceType } = useGemini();
+  const [isRecording, setIsRecording] = useState(false);
+  const { geminiResponse } = useUser();
+  useGemini();
 
-    useEffect(() => {
-        console.log("useGemini values:", { appState, connect, startRecording, stopRecording, setAudioSourceType });
-    }, [appState, connect, startRecording, stopRecording, setAudioSourceType]);
 
   return (
       <div className="relative">
