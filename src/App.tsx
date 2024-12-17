@@ -1,58 +1,38 @@
-// src/App.tsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import StatusBar from './components/statusbar';
 import CoachingContent from './components/coachingcontent';
 import MetricsDisplay from './components/metricsdisplay';
 import LoadingSpinner from './components/loadingspinner';
 import AudioVisualizer from './components/audiovisualizer';
 import { useUser } from './contexts/UserContext';
-import useGemini from './hooks/useGemini';
 import { Button } from './components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+import useGemini from './hooks/useGemini';
 
 const App: React.FC = () => {
-    const {appState, connect, startRecording, stopRecording, setAudioSourceType} = useGemini();
-    const {isRecording, errors, isLoading} = appState;
-    const { setGeminiResponse, geminiResponse, audioSourceType } = useUser();
+    const [isRecording, setIsRecording] = useState(false);
+    const { geminiResponse } = useUser();
+    const { appState, connect, startRecording, stopRecording, setAudioSourceType } = useGemini();
 
-    const handleAudioSourceTypeChange = (value: string) => {
-        setAudioSourceType(value === "multiple" ? "multiple" : "single");
-    }
-    const handleConnect = async () => {
-        setGeminiResponse(null);
-        await connect()
-    }
-    const handleStartRecording = async () => {
-         setGeminiResponse(null);
-         await startRecording();
-    };
-
+    useEffect(() => {
+        console.log("useGemini values:", { appState, connect, startRecording, stopRecording, setAudioSourceType });
+    }, [appState, connect, startRecording, stopRecording, setAudioSourceType]);
 
   return (
       <div className="relative">
           <div className="flex justify-center p-4">
-            <Button onClick={handleConnect} disabled={isLoading}> Connect to Gemini </Button>
-             <Select onValueChange={handleAudioSourceTypeChange} value={audioSourceType}>
-                 <SelectTrigger className="ml-4 w-[180px]">
-                   <SelectValue placeholder="Audio Type"/>
-                 </SelectTrigger>
-                  <SelectContent>
-                     <SelectItem value={"single"}> Single Stream </SelectItem>
-                    <SelectItem value={"multiple"}> Multiple Streams </SelectItem>
-                    </SelectContent>
-                </Select>
+            <Button > Connect to Gemini </Button>
           </div>
-        {isLoading && <LoadingSpinner/>}
-          {errors && <div className="p-4 text-red-600">{errors}</div>}
+        <LoadingSpinner/>
+          <div className="p-4 text-red-600"></div>
 
           <StatusBar isRecording={isRecording} />
           <CoachingContent  suggestions={geminiResponse?.text || ""}/>
-          <MetricsDisplay metrics={appState.metrics}/>
+          <MetricsDisplay metrics={{}}/>
           <AudioVisualizer/>
         <div className="fixed bottom-4 right-4">
               {!isRecording ?
-                  (<Button onClick={handleStartRecording} disabled={isLoading} > Start Recording </Button>):
-                (<Button onClick={stopRecording} disabled={isLoading}> Stop Recording </Button>)}
+                  (<Button onClick={() => setIsRecording(true)} > Start Recording </Button>):
+                (<Button onClick={() => setIsRecording(false)}> Stop Recording </Button>)}
           </div>
       </div>
   );

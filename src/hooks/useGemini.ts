@@ -1,16 +1,7 @@
-// src/hooks/useGemini.ts
 import { useState, useEffect, useCallback } from 'react';
-import GeminiService from '../services/GeminiService';
-import {  AppState, GeminiResponse, AudioStreamType,  ContextType, AudioSourceType} from '@/types/types';
-import { captureMicrophoneAudio, captureSystemAudio, handleSystemError, combineAudioStreams} from '@/lib/utils';
 import { useUser } from '@/contexts/UserContext';
-
-const INITIAL_SYSTEM_INSTRUCTION = `You are an AI interview coach and your role is to help the user by providing real-time tips to help them succeed in their interview. You will receive real time audio from the interviewer and the interviewee and should provide relevant advice in real time. The following are some of the tips you should provide:
-  - When the interviewer is giving long prompts and instructions, you should summarize what they are saying to help the user digest the question.
-  - When the user is asked behavioral questions, you should prompt the user to use the STAR method to answer the questions, or ask for the user to specify a Situation, Task, Action and Result.
-  - When the user is struggling to answer questions, provide the user with sample answers and provide tips that they may have missed.
-  - You should help the user by keeping track of time, and provide general interview tips.
-`;
+import  GeminiService  from '@/services/GeminiService';
+import { WebSocketErrorEvent } from '@/types/types';
 
 const useGemini = () => {
   const [geminiService, setGeminiService] = useState<GeminiService | null>(null);
@@ -47,7 +38,7 @@ const useGemini = () => {
                          sessionId:  crypto.randomUUID(),
                         startTime: new Date(),
                     }
-                    await geminiService.startSession(INITIAL_SYSTEM_INSTRUCTION)
+                    await geminiService.startSession("You are an interview coach. Provide feedback on the user's interview performance. Be concise and specific.")
                     setSession(newSession);
 
                  } else {
@@ -60,82 +51,71 @@ const useGemini = () => {
            }
 
     }, [geminiService, setAppState, setSession, session]);
-    const startRecording = useCallback( async () => {
+
+    const handleGeminiResponse = (event: MessageEvent) => {
         if (!geminiService) {
-            setAppState({ errors: "Gemini service not initialized" });
-           return;
+            console.error("Gemini service not connected");
+            return;
         }
         try {
-             setAppState({isRecording: true, errors: null});
-           setAppState({isLoading: true});
-            let stream: AudioStreamType = null;
-
-            if (audioSourceType === "single") {
-                stream = await captureSystemAudio(audioSourceType);
-            } else {
-                const systemAudioStream = await captureSystemAudio(audioSourceType);
-                const microphoneStream = await captureMicrophoneAudio();
-                 if (systemAudioStream && microphoneStream) {
-                      stream = await combineAudioStreams(systemAudioStream, microphoneStream)
-                 }
-                else {
-                   setAppState({ errors: 'Could not capture system audio'});
-                    return;
-                 }
-
+            const response = geminiService.processGeminiResponse(event);
+            if (response) {
+                setGeminiResponse(response);
             }
-
-            if (!stream) {
-                setAppState({ errors: 'Could not capture system audio'});
-                 return;
-            }
-
-            setAudioStream(stream);
-            if (audioSourceType === "single") {
-              await geminiService.sendMessage(stream, "user");
-             } else {
-                 await geminiService.sendMessage(stream, "interviewer");
-             }
-             setAppState({isLoading: false});
-           } catch (error) {
-               handleSystemError(error);
-               setAppState({isLoading: false, errors: 'Error capturing and sending audio. Check if permissions are granted.'});
-            }
-
-
-    }, [geminiService, setAppState, setAudioStream, audioSourceType]);
-    const stopRecording = useCallback(() => {
-         setAppState({isRecording: false});
-       if (geminiService) {
-         geminiService.close();
-       }
-
-    }, [geminiService, setAppState]);
-
-
-  const handleGeminiResponse = (event: MessageEvent) => {
-        try {
-              const response  = geminiService?.processGeminiResponse(event);
-               if (response) {
-                 setGeminiResponse(response);
-               }
-         } catch (error) {
+        } catch (error) {
             handleSystemError(error);
-             setAppState({ errors: 'Error processing Gemini response.' });
+            setAppState({errors: 'Error processing Gemini response.'});
         }
+    };
 
-  };
-    const handleGeminiError = (error: any) => {
-          handleSystemError(error);
-          setAppState({ errors: 'Error from Gemini API. Check network connection.' });
-  };
+    const handleGeminiError = (error: WebSocketErrorEvent) => {
+        handleSystemError(error);
+        setAppState({errors: 'Error from Gemini API.'});
+    };
+
+    const handleSystemError = (error: unknown) => {
+        console.error("System error:", error);
+    };
+
+    const startRecording = async () => {
+        if (!geminiService) {
+            console.error("Gemini service not connected");
+            return;
+        }
+        try {
+            setAppState({isLoading: true});
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            setAudioStream(stream);
+            await geminiService.startRecording(stream, audioSourceType);
+            setAppState({isRecording: true, isLoading: false});
+        } catch (error) {
+            handleSystemError(error);
+            setAppState({isLoading: false, errors: 'Error starting recording.'});
+        }
+    };
+
+    const stopRecording = async () => {
+        if (!geminiService) {
+            console.error("Gemini service not connected");
+            return;
+        }
+        try {
+            setAppState({isLoading: true});
+            await geminiService.stopRecording();
+            setAppState({isRecording: false, isLoading: false});
+        } catch (error) {
+            handleSystemError(error);
+            setAppState({isLoading: false, errors: 'Error stopping recording.'});
+        }
+    };
 
   return {
-      appState,
-      connect,
-      startRecording,
-      stopRecording,
+    appState,
+    connect,
+    startRecording,
+    stopRecording,
       setAudioSourceType
   };
 };
+
 export default useGemini;
