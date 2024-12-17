@@ -1,10 +1,10 @@
 // src/App.tsx
 import React from 'react';
-import StatusBar from './components/StatusBar';
-import CoachingContent from './components/CoachingContent';
-import MetricsDisplay from './components/MetricsDisplay';
-import LoadingSpinner from './components/LoadingSpinner';
-import AudioVisualizer from './components/AudioVisualizer';
+import StatusBar from './components/statusbar';
+import CoachingContent from './components/coachingcontent';
+import MetricsDisplay from './components/metricsdisplay';
+import LoadingSpinner from './components/loadingspinner';
+import AudioVisualizer from './components/audiovisualizer';
 import { useUser } from './contexts/UserContext';
 import useGemini from './hooks/useGemini';
 import { Button } from './components/ui/button';
@@ -12,9 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 const App: React.FC = () => {
     const {appState, connect, startRecording, stopRecording, setAudioSourceType} = useGemini();
-    const {isRecording, errors, isLoading, suggestions} = appState;
+    const {isRecording, errors, isLoading} = appState;
     const { setGeminiResponse, geminiResponse, audioSourceType } = useUser();
-
 
     const handleAudioSourceTypeChange = (value: string) => {
         setAudioSourceType(value === "multiple" ? "multiple" : "single");

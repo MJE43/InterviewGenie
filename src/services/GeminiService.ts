@@ -1,8 +1,6 @@
 import { 
-  GeminiResponse, 
-  AudioStreamType, 
-  GeminiWebSocketMessage, 
-  WebSocketErrorEvent 
+  GeminiResponse,
+  AudioStreamType
 } from '@/types/types';
 
 interface GeminiConfig {
@@ -19,7 +17,7 @@ export interface GeminiWebSocketMessage {
   };
 }
 
-export interface WebSocketErrorEvent {
+export interface WebSocketErrorWithMessage extends Event {
   error: Error;
   message: string;
 }
@@ -32,7 +30,7 @@ class GeminiService {
     }
   async connect(
     callback: (message: MessageEvent) => void,
-    errorCallback: (error: WebSocketErrorEvent) => void
+    errorCallback: (error: WebSocketErrorWithMessage) => void
   ): Promise<void> {
         if (this.ws) {
             this.ws.close();
@@ -46,8 +44,8 @@ class GeminiService {
            this.ws.onmessage = (event) => {
                callback(event);
             };
-        this.ws.onerror = (error) => {
-           errorCallback(error);
+        this.ws.onerror = (error: Event) => {
+           errorCallback(error as WebSocketErrorWithMessage);
          };
          this.ws.onclose = () => {
               console.log('Disconnected from Gemini API');
@@ -90,16 +88,17 @@ class GeminiService {
               console.warn("no audio tracks");
              return
           }
-         const reader = new MediaStreamTrackReader(audioTracks[0])
+         const processor = new MediaStreamTrackProcessor({ track: audioTracks[0] });
+         const reader = processor.readable.getReader();
            try {
              while(true) {
-                const chunk = await reader.read();
-                    if (!chunk) {
+                const { value: chunk, done } = await reader.read();
+                    if (done) {
                          break;
                      }
                  const message = JSON.stringify({
                    "BidiGenerateContentRealtimeInput": {
-                        "audio_chunks": [chunk.data],
+                        "audio_chunks": [chunk],
                          "client_content": {
                             "turns": [
                               {
@@ -119,6 +118,8 @@ class GeminiService {
         } catch (error) {
             console.error("failed to read or send message", error);
               throw new Error('failed to read or send message' + error);
+        } finally {
+            reader.releaseLock();
         }
  }
 
@@ -131,7 +132,7 @@ class GeminiService {
            const response = JSON.parse(event.data) as GeminiWebSocketMessage;
             if (response.BidiGenerateContentServerContent?.model_turn) {
                 const text = response.BidiGenerateContentServerContent.model_turn.parts.map(
-                    (part: any) => part.text
+                    (part: { text: string }) => part.text
                   ).join('');
                  const isInterrupted = response.BidiGenerateContentServerContent.interrupted === true;
                 return {text: text, isInterrupted: isInterrupted};
