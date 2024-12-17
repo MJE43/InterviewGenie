@@ -9,6 +9,11 @@ declare module '@/types/audio' {
         | 'PIPELINE_SETUP_FAILED'
         | 'UNKNOWN';
 
+    export interface AudioError extends Error {
+        type: AudioErrorType;
+        recoverable: boolean;
+    }
+
     export interface AudioConfig {
         echoCancellation: boolean;
         noiseSuppression: boolean;

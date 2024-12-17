@@ -1,11 +1,11 @@
 // src/services/AudioManager.ts
-
-import { EventEmitter } from 'events';
+import { EventDispatcher } from '@/lib/events';
 import { 
     AudioConfig, 
     AudioStatus, 
     AudioErrorType, 
     AudioMetrics,
+    AudioData,
     ExtendedMediaTrackConstraints 
 } from '@/types/audio';
 
@@ -20,31 +20,28 @@ export class AudioError extends Error {
     }
 }
 
-export class AudioManager extends EventEmitter {
+export class AudioManager extends EventDispatcher {
     private static instance: AudioManager;
     private audioContext: AudioContext | null = null;
     private mediaStreamSource: MediaStreamAudioSourceNode | null = null;
     private processor: ScriptProcessorNode | null = null;
     private stream: MediaStream | null = null;
-    private readonly bufferSize = 4096;
+    private readonly bufferSize = 4096; // ~93ms at 44.1kHz
     private status: AudioStatus = 'inactive';
     private retryCount = 0;
     private readonly maxRetries = 3;
+    private currentConfig: AudioConfig;
+
     private readonly defaultConfig: AudioConfig = {
+        sampleRate: 44100,
         echoCancellation: true,
-        noiseSuppression: true,
-        sampleRate: 44100
+        noiseSuppression: true
     };
 
     private constructor() {
         super();
         this.handleAudioProcess = this.handleAudioProcess.bind(this);
-
-        try {
-            this.setupAudioContext();
-        } catch (err) {
-            throw new AudioError('CONTEXT_CREATION_FAILED', 'Failed to create audio context in constructor', false);
-        }
+        this.currentConfig = { ...this.defaultConfig };
     }
 
     static getInstance(): AudioManager {
@@ -54,31 +51,41 @@ export class AudioManager extends EventEmitter {
         return AudioManager.instance;
     }
 
-    public async initialize(config: Partial<AudioConfig> = {}): Promise<void> {
+    public async initialize(config?: Partial<AudioConfig>): Promise<void> {
         try {
-            const mergedConfig = { ...this.defaultConfig, ...config };
-            await this.setupAudioStream(mergedConfig);
+            this.currentConfig = {
+                ...this.defaultConfig,
+                ...config
+            };
+            
+            await this.setupAudioContext();
+            await this.setupAudioStream();
             this.setupAudioPipeline();
             this.status = 'active';
             this.emit('statusChange', this.status);
-        } catch (err) {
-            await this.handleError(err);
+        } catch (error) {
+            await this.handleError(error);
         }
     }
 
-    private setupAudioContext(): void {
-        this.audioContext = new AudioContext({
-            sampleRate: this.defaultConfig.sampleRate,
-            latencyHint: 'interactive'
-        });
+    private async setupAudioContext(): Promise<void> {
+        try {
+            this.audioContext = new AudioContext({
+                sampleRate: this.currentConfig.sampleRate,
+                latencyHint: 'interactive'
+            });
+            await this.audioContext.resume();
+        } catch (error) {
+            this.handleSetupError(error, 'CONTEXT_CREATION_FAILED', 'Failed to create audio context');
+        }
     }
 
-    private async setupAudioStream(config: AudioConfig): Promise<void> {
+    private async setupAudioStream(): Promise<void> {
         try {
             const constraints: ExtendedMediaTrackConstraints = {
-                echoCancellation: config.echoCancellation,
-                noiseSuppression: config.noiseSuppression,
-                sampleRate: config.sampleRate
+                echoCancellation: this.currentConfig.echoCancellation,
+                noiseSuppression: this.currentConfig.noiseSuppression,
+                sampleRate: this.currentConfig.sampleRate
             };
 
             const displayMediaOptions = {
@@ -89,9 +96,14 @@ export class AudioManager extends EventEmitter {
             };
 
             this.stream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
-        } catch (err) {
-            throw new AudioError('STREAM_CREATION_FAILED', 'Failed to create audio stream', true);
+        } catch (error) {
+            this.handleSetupError(error, 'STREAM_CREATION_FAILED', 'Failed to create audio stream');
         }
+    }
+
+    private handleSetupError(error: unknown, type: AudioErrorType, message: string): never {
+        console.error(`${message}:`, error);
+        throw new AudioError(type, message, type !== 'CONTEXT_CREATION_FAILED');
     }
 
     private setupAudioPipeline(): void {
@@ -106,8 +118,8 @@ export class AudioManager extends EventEmitter {
         this.mediaStreamSource = this.audioContext.createMediaStreamSource(this.stream);
         this.processor = this.audioContext.createScriptProcessor(
             this.bufferSize,
-            1,
-            1
+            1, // Number of input channels
+            1  // Number of output channels
         );
 
         this.processor.onaudioprocess = this.handleAudioProcess;
@@ -119,34 +131,36 @@ export class AudioManager extends EventEmitter {
         const inputBuffer = event.inputBuffer;
         const inputData = inputBuffer.getChannelData(0);
         
-        const metrics: AudioMetrics = {
-            rms: 0,
-            peak: 0,
-            average: 0,
-            clipping: false
-        };
-
-        this.calculateAudioMetrics(inputData, metrics);
+        const metrics = this.calculateAudioMetrics(inputData);
         
-        this.emit('audioData', {
+        const audioData: AudioData = {
             buffer: inputData,
             metrics,
             timestamp: Date.now()
-        });
+        };
+
+        this.emit('audioData', audioData);
     }
 
-    private calculateAudioMetrics(buffer: Float32Array, metrics: AudioMetrics): void {
+    private calculateAudioMetrics(buffer: Float32Array): AudioMetrics {
         let sum = 0;
+        let peak = 0;
 
         for (let i = 0; i < buffer.length; i++) {
             const absolute = Math.abs(buffer[i]);
-            sum += absolute;
-            metrics.peak = Math.max(metrics.peak, absolute);
+            sum += absolute * absolute; // Use squared values for RMS
+            peak = Math.max(peak, absolute);
         }
 
-        metrics.average = sum / buffer.length;
-        metrics.rms = Math.sqrt(sum / buffer.length);
-        metrics.clipping = metrics.peak > 0.99;
+        const rms = Math.sqrt(sum / buffer.length);
+        const average = sum / buffer.length;
+
+        return {
+            rms,
+            peak,
+            average,
+            clipping: peak > 0.99
+        };
     }
 
     private async handleError(error: unknown): Promise<void> {
@@ -173,15 +187,17 @@ export class AudioManager extends EventEmitter {
             await this.cleanup();
             await new Promise(resolve => setTimeout(resolve, 1000 * this.retryCount));
             await this.initialize();
-        } catch (err) {
-            await this.handleError(err);
+        } catch (error) {
+            await this.handleError(error);
         }
     }
 
     public async cleanup(): Promise<void> {
+        this.removeAllListeners();
+
         if (this.processor) {
-            this.processor.disconnect();
             this.processor.onaudioprocess = null;
+            this.processor.disconnect();
             this.processor = null;
         }
 
@@ -191,7 +207,9 @@ export class AudioManager extends EventEmitter {
         }
 
         if (this.stream) {
-            this.stream.getTracks().forEach(track => track.stop());
+            this.stream.getTracks().forEach(track => {
+                track.stop();
+            });
             this.stream = null;
         }
 
@@ -211,4 +229,10 @@ export class AudioManager extends EventEmitter {
     public isActive(): boolean {
         return this.status === 'active';
     }
+
+    public getConfig(): AudioConfig {
+        return { ...this.currentConfig };
+    }
 }
+
+export default AudioManager;
